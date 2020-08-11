@@ -17,8 +17,8 @@ In this workshop we'll learn how to build cloud-enabled web applications with Vu
 
 ## Pre-requisites
 
-- Node: `12.11.0`. Visit [Node](https://nodejs.org/en/download/current/)
-- npm: `6.11.3`. Packaged with Node otherwise run upgrade
+- Node: `14.7.0`. Visit [Node](https://nodejs.org/en/download/current/)
+- npm: `6.14.7`. Packaged with Node otherwise run upgrade
 
 ```bash
 npm install -g npm
@@ -50,7 +50,7 @@ npm run serve
 Let's now install the AWS Amplify API & AWS Amplify Vue library:
 
 ```bash
-npm install --save aws-amplify aws-amplify-vue
+npm install --save aws-amplify @aws-amplify/ui-vue
 ```
 > If you have issues related to EACCESS try using sudo: `sudo npm <command>`.
 
@@ -61,8 +61,6 @@ Next, we'll install the AWS Amplify CLI:
 ```bash
 npm install -g @aws-amplify/cli
 ```
-> If your installation fails. Try `npm install -g @aws-amplify/cli --unsafe-perm=true`.
-> If you have issues related to fsevents with npm install. Try: `npm audit fix --force`.
 
 Now we need to configure the CLI with our credentials:
 
@@ -163,12 +161,12 @@ To configure the app, open __main.js__ and add the following code below the last
 ```js
 import Vue from 'vue'
 import App from './App.vue'
-import Amplify, * as AmplifyModules from 'aws-amplify'
-import { AmplifyPlugin } from 'aws-amplify-vue'
-import awsconfig from './aws-exports'
-Amplify.configure(awsconfig)
 
-Vue.use(AmplifyPlugin, AmplifyModules)
+import Amplify from 'aws-amplify';
+import '@aws-amplify/ui-vue';
+import aws_exports from './aws-exports';
+
+Amplify.configure(aws_exports);
 
 Vue.config.productionTip = false
 
@@ -188,7 +186,12 @@ In order to use the Authenticator Component add it to __src/App.vue__:
 ```html
 <template>
   <div id="app">
-    <amplify-authenticator></amplify-authenticator>
+    <amplify-authenticator>
+      <div>
+        <h1>Hey, {{user.username}}!</h1>
+        <amplify-sign-out></amplify-sign-out>
+      </div>
+    </amplify-authenticator>
   </div>
 </template>
 ```
@@ -205,11 +208,11 @@ amplify console auth
 
 ### Accessing User Data
 
-We can access the user's info now that they are signed in by calling `currentAuthenticatedUser()` which returns a Promise.
+By listening to authentication state changes using `onAuthUIStateChange` we can access the user's info once they are signed in as shown below.
 
 ```js
 <script>
-import { Auth } from 'aws-amplify';
+import { onAuthUIStateChange } from '@aws-amplify/ui-components'
 
 export default {
   name: 'app',
@@ -218,13 +221,14 @@ export default {
       user: { },
     }
   },
-  methods: {
-    currentUser() {
-      Auth.currentAuthenticatedUser().then(user => {
+  created() {
+    // authentication state managament
+    onAuthUIStateChange((state, user) => {
+      // set current user and load data after login
+      if (state === 'signedin') {
         this.user = user;
-        console.log(user);
-      })
-    }
+      }
+    })
   }
 }
 </script>
@@ -297,24 +301,17 @@ Answer the following questions
 - Provide API name: __RestaurantAPI__
 - Choose the default authorization type for the API __API key__
 - Enter a description for the API key: __(empty)__
-- After how many days from now the API key should expire (1-365): __180__
-- Do you want to configure advanced settings for the GraphQL API __Yes, I want to make some additional changes.__
-- Choose the additional authorization types you want to configure for the API (Press &lt;space&gt; to select, &lt;a&gt; to 
-toggle all, &lt;i&gt; to invert selection) __None__
+- After how many days from now the API key should expire (1-365): __7__
+- Do you want to configure advanced settings for the GraphQL API __No, I am done.__
 - Do you have an annotated GraphQL schema? __No__
-- Do you want a guided schema creation? __Yes__
-- What best describes your project: __Single object with fields (e.g., “Todo” with ID, name, description)__
+- Choose a schema template: __Single object with fields (e.g., “Todo” with ID, name, description)__
 - Do you want to edit the schema now? __Yes__
-
-> To select none just press `Enter`.
-
 
 > When prompted, update the schema to the following:   
 
 ```graphql
 type Restaurant @model {
   id: ID!
-  clientId: String
   name: String!
   description: String!
   city: String!
@@ -424,7 +421,7 @@ To do so, we need to define the query, execute the query, store the data in our 
 
 > Read more about the __Amplify GraphQL Client__ [here](https://aws-amplify.github.io/docs/js/api#amplify-graphql-client).
 
-```js
+```vue
 <template>
   <div v-for="restaurant of restaurants" :key="restaurant.id">
     {{restaurant.name}}
@@ -442,9 +439,19 @@ export default {
     }
   },
   created() {
-    const response = await API.graphql(graphqlOperation(listRestaurants));
-    this.restaurants = response.data.listRestaurants.items;
+    this.getData();
   },
+  methods: {
+    async getData() {
+      try {
+        const response = await API.graphql(graphqlOperation(listRestaurants));
+        this.restaurants = response.data.listRestaurants.items;
+      }
+      catch (error) {
+        console.log('Error loading restaurants...', error);
+      }
+    },
+  }
 }
 </script>
 ```
@@ -453,7 +460,7 @@ export default {
 
  Now, let's look at how we can create mutations.
 
-```js
+```vue
 <template>
   <div>
     <form v-on:submit.prevent>
@@ -474,27 +481,23 @@ export default {
   data() {
     return {
       form: { },
-      clientId: null
     }
-  },
-  created() {
-    this.clientId = uuid();
   },
   methods: {
     async createRestaurant() {
+      const { name, description, city } = this.form
+      if (!name || !description || !city) return;
+    
+      const restaurant = { name, description, city };
       try {
-        const { name, description, city } = this.form;
-        const restaurant = { name, description, city, clientId: this.clientId };
-        const response = await API.graphql(
-          graphqlOperation(createRestaurant, { input: restaurant })
-        );
+        const response = await API.graphql(graphqlOperation(createRestaurant, { input: restaurant }))
+        console.log('Item created!')
         this.restaurants = [...this.restaurants, response.data.createRestaurant];
         this.form = { name: '', description: '', city: '' };
-        console.log('item created!')
-      } catch (err) {
-        console.log(err)
+      } catch (error) {
+        console.log('Error creating restaurant...', error)
       }
-    }
+    },
   }
 }
 </script>
@@ -518,7 +521,6 @@ export default {
       const newRestaurant = sourceData.value.data.onCreateRestaurant
       if (newRestaurant) {
         // skip our own mutations and duplicates
-        if (newRestaurant.clientId == this.clientId) return;
         if (this.restaurants.some(r => r.id == newRestaurant.id)) return;
         this.restaurants = [newRestaurant, ...this.restaurants];
       } 
@@ -660,6 +662,7 @@ To deploy & host your app on AWS, we can use the `hosting` category.
 amplify add hosting
 ```
 
+- Select the plugin module to execute: __Amazon CloudFront and S3__
 - Select the environment setup: __DEV (S3 only with HTTP)__
 - hosting bucket name __YOURBUCKETNAME__
 - index doc for the website __index.html__
