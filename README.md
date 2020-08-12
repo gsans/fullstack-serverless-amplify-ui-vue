@@ -212,7 +212,7 @@ By listening to authentication state changes using `onAuthUIStateChange` we can 
 
 ```js
 <script>
-import { onAuthUIStateChange } from '@aws-amplify/ui-components'
+import { AuthState, onAuthUIStateChange } from '@aws-amplify/ui-components'
 
 export default {
   name: 'app',
@@ -225,7 +225,7 @@ export default {
     // authentication state managament
     onAuthUIStateChange((state, user) => {
       // set current user and load data after login
-      if (state === 'signedin') {
+      if (state === AuthState.SignedIn) {
         this.user = user;
       }
     })
